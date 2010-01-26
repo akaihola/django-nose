@@ -9,6 +9,7 @@ in settings.py for arguments that you always want passed to nose.
 """
 import os
 import sys
+from optparse import make_option
 
 from django.conf import settings
 from django.core.management.base import BaseCommand
@@ -30,8 +31,14 @@ except NameError:
 
 # This is a table of Django's "manage.py test" options which
 # correspond to nosetests options with a different name:
-OPTION_TRANSLATION = {'--failfast': '-x'}
+OPTION_TRANSLATION = {'--failfast': '-x',
+                      '--nose-verbosity': '--verbosity'}
 
+def translate_option(opt):
+    if '=' in opt:
+        long_opt, value = opt.split('=', 1)
+        return '%s=%s' % (translate_option(long_opt), value)
+    return OPTION_TRANSLATION.get(opt, opt)
 
 class NoseTestSuiteRunner(DjangoTestSuiteRunner):
 
@@ -63,7 +70,7 @@ class NoseTestSuiteRunner(DjangoTestSuiteRunner):
             get_tests(app)
         old_names = self.setup_databases()
 
-        nose_argv = ['nosetests', '--verbosity', str(self.verbosity)]
+        nose_argv = ['nosetests']
         if hasattr(settings, 'NOSE_ARGS'):
             nose_argv.extend(settings.NOSE_ARGS)
 
@@ -73,9 +80,12 @@ class NoseTestSuiteRunner(DjangoTestSuiteRunner):
             django_opts.extend(opt._long_opts)
             django_opts.extend(opt._short_opts)
 
-        nose_argv.extend(OPTION_TRANSLATION.get(opt, opt)
-                         for opt in sys.argv[2:]
+        nose_argv.extend(translate_option(opt) for opt in sys.argv[2:]
                          if not any(opt.startswith(d) for d in django_opts))
+        # if --nose-verbosity was omitted, pass Django verbosity to nose
+        if ('--verbosity' not in nose_argv and
+                not any(opt.startswith('--verbosity=') for opt in nose_argv)):
+            nose_argv.append('--verbosity=%s' % str(self.verbosity))
 
         if self.verbosity >= 1:
             print ' '.join(nose_argv)
@@ -92,6 +102,17 @@ def _get_options():
     manager = nose.core.DefaultPluginManager()
     config = nose.core.Config(env=os.environ, files=cfg_files, plugins=manager)
     options = config.getParser().option_list
+
+    # copy nose's --verbosity option and rename to --nose-verbosity
+    verbosity = [o for o in options if o.get_opt_string() == '--verbosity'][0]
+    verbosity_attrs = dict((attr, getattr(verbosity, attr))
+                           for attr in verbosity.ATTRS
+                           if attr not in ('dest', 'metavar'))
+    options.append(make_option('--nose-verbosity',
+                               dest='nose_verbosity',
+                               metavar='NOSE_VERBOSITY',
+                               **verbosity_attrs))
+
     django_opts = [opt.dest for opt in BaseCommand.option_list] + ['version']
     return tuple(o for o in options if o.dest not in django_opts and
                                        o.action != 'help')
