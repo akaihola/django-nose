@@ -6,10 +6,19 @@ from django.conf import settings
 from django.test.utils import get_runner
 
 
-try:
+if 'south' in settings.INSTALLED_APPS:
     from south.management.commands.test import Command
-except ImportError:
+else:
     from django.core.management.commands.test import Command
+
+
+# Django < 1.2 compatibility
+test_runner = settings.TEST_RUNNER
+if test_runner.endswith('run_tests') or test_runner.endswith('run_gis_tests'):
+    import warnings
+    warnings.warn(
+        'Use `django_nose.NoseTestSuiteRuner` instead of `%s`' % test_runner,
+        DeprecationWarning)
 
 
 TestRunner = get_runner(settings)
